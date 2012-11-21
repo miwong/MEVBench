@@ -791,6 +791,7 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 
 		}
 
+		cout << "Face Detection completed. "  << faces.size()<< " Faces found in current iteration" <<endl;
 
 		lastKey = key;
 		if(!faceDetectionConfig.noWaitKey)
