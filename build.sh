@@ -28,12 +28,15 @@
 
 
 
-export OpenCV_DIR="/home/jlclemon/Documents/OpenCV/OpenCV2.4.2NativeInstall"
+export OpenCV_DIR="/usr/local/lib"
+#export OpenCV_DIR="/home/michelle/ece1747/opencv"
 #"/home/jlclemon/Documents/OpenCV/OpenCV2.2NativeInstall/"
-export OpenCV_STATIC_DIR="/home/jlclemon/Documents/OpenCV/OpenCV2.4.2NativeStaticInstall"
+export OpenCV_STATIC_DIR="/usr/local"
+#export OpenCV_STATIC_DIR="/home/michelle/ece1747/opencv"
 #"/home/jlclemon/Documents/OpenCV/OpenCV2.2NativeStaticInstall/"
 export OpenCV_ARM_DIR="$HOME/Documents/OpenCV/OpenCV2.3.1ArmInstall"
 export OpenCV_ARM_STATIC_DIR="$HOME/Documents/OpenCV/OpenCV2.3.1ArmStaticInstall"
+export LD_LIBRARY_PATH="/home/michelle/ece1747/opencv/lib":$LD_LIBRARY_PATH
 if [ -n "$XTRA_PARAMS" ]; then
 	echo "Setting XTR_PARAMS=$XTRA_PARAMS based on pre defined value"
 	#export XTRA_PARAMS="$XTRA_PARAMS -DUSE_MARSS"
@@ -45,7 +48,9 @@ else
 	#export XTRA_PARAMS="-DUSE_MARSS"
 	#export XTRA_PARAMS="-DTSC_TIMING"
 
-	export XTRA_PARAMS="-DCLOCK_GETTIME_TIMING -DOPENCV_2_4"
+	#export XTRA_PARAMS="-DCLOCK_GETTIME_TIMING -DOPENCV_2_4"
+	#export XTRA_PARAMS="-DCLOCK_GETTIME_TIMING -DOPENCV_2_4 -std=c++0x"
+	export XTRA_PARAMS="-DPROFILING -DCLOCK_GETTIME_TIMING -DOPENCV_2_4 -std=c++0x"
 fi
 
 export ARM_XTRA_PARAMS="-DOPENCV_VER_2_3 -DUSE_GEM5 -DCLOCK_GETTIME_TIMING -mno-unaligned-access"

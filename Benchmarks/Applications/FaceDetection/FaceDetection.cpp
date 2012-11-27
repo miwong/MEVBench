@@ -62,6 +62,8 @@ extern "C"
 #endif
 #endif
 
+#include <chrono>
+
 #ifdef TSC_TIMING
 vector<TSC_VAL_w> fd_timingVector;
 #endif
@@ -101,6 +103,21 @@ vector<struct timespec> fd_timeStructVector;
 			}
 			outputFile.close();
 		}
+#endif
+
+using namespace std::chrono;
+extern double t_detectSingleScale, t_groupRectangles, t_multiLoopCalc, t_detectMultiScaleInternal;
+extern double t_parallelFor;
+double t_detectMultiScale = 0.0, t_getNextFrames = 0.0, t_setupInput = 0.0, t_total = 0.0;
+
+#ifdef PROFILING
+#define PROFILE_FUNC(counter, func) \
+	system_clock::time_point counter ## _1 = system_clock::now(); \
+	func; \
+	system_clock::time_point counter ## _2 = system_clock::now(); \
+	counter += duration_cast<duration<double>>(counter ## _2 - counter ## _1).count();
+#else
+#define PROFILE_FUNC(counter, func) func;
 #endif
 
 void readFileListFromFile(string fileListFilename, string filesBaseDir,vector<string> &fileList)
@@ -653,8 +670,17 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 	parseFaceDetectionConfigCommandVector(faceDetectionConfig, commandLineArgs);
 
 
+	/*
+	system_clock::time_point t_setupInput_1 = system_clock::now();
 
 	faceDetectionSetupInput(	faceDetectionConfig,faceDetectionData);
+
+	system_clock::time_point t_setupInput_2 = system_clock::now();
+	t_setupInput += duration_cast<duration<double>>(t_setupInput_2 - t_setupInput_1).count();
+	*/
+
+	PROFILE_FUNC(t_setupInput, faceDetectionSetupInput(faceDetectionConfig, faceDetectionData));
+
 	setupFaceDetectionData(faceDetectionConfig, faceDetectionData);
 
 
@@ -687,8 +713,8 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 	{
 		cout << "Creating display windows" << endl;
 
-		namedWindow("Current Frame Original");
-		namedWindow("Current Frame Grayscale");
+		//namedWindow("Current Frame Original");
+		//namedWindow("Current Frame Grayscale");
 		namedWindow("Current Frame Augmented");
 
 	}
@@ -746,7 +772,18 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 #endif
 	while(!done)
 	{
+		/*
+		system_clock::time_point t_getNextFrames_1 = system_clock::now();
+
 		faceDetectionGetNextFrames(faceDetectionConfig, faceDetectionData);
+		
+		system_clock::time_point t_getNextFrames_2 = system_clock::now();
+		t_getNextFrames += duration_cast<duration<double>>(t_getNextFrames_2 - t_getNextFrames_1).count();
+		//duration<double> t_getNextFrames_span = duration_cast<duration<double>>(t_getNextFrames_2 - t_getNextFrames_1);
+		//std::cout << "faceDetectionGetNextFrames: " << t_getNextFrames_span.count() << " seconds" << std::endl;
+		*/
+		PROFILE_FUNC(t_getNextFrames, faceDetectionGetNextFrames(faceDetectionConfig, faceDetectionData));
+
 		//cout << "Top of Loop" << endl;
 		if(faceDetectionData.outOfImages == true)
 		{
@@ -760,6 +797,9 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 	    resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
 	    equalizeHist( smallImg, smallImg );
 
+		/*
+		system_clock::time_point t_detectMultiScale_1 = system_clock::now();
+
 	    faceDetectionData.faceCascade.detectMultiScale( smallImg, faces,
 	        1.1, 2, 0
 	        //|CV_HAAR_FIND_BIGGEST_OBJECT
@@ -768,11 +808,25 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 	        ,
 	        Size(30, 30) );
 
+		system_clock::time_point t_detectMultiScale_2 = system_clock::now();
+		t_detectMultiScale += duration_cast<duration<double>>(t_detectMultiScale_2 - t_detectMultiScale_1).count();
+		//duration<double> time_span = duration_cast<duration<double>>(t_detectMultiScale_2 - t_detectMultiScale_1);
+		//std::cout << "detectMultiScale: " << time_span.count() << " seconds" << std::endl;
+		*/
+		PROFILE_FUNC(t_detectMultiScale, faceDetectionData.faceCascade.detectMultiScale( smallImg, faces,
+	        1.1, 2, 0
+	        //|CV_HAAR_FIND_BIGGEST_OBJECT
+	        //|CV_HAAR_DO_ROUGH_SEARCH
+	        |CV_HAAR_SCALE_IMAGE
+	        ,
+	        Size(30, 30) )
+		);
+
 		if(faceDetectionConfig.showWindows)
 		{
 
-			imshow("Current Frame Original", faceDetectionData.currentFrame[0]);
-			imshow("Current Frame Grayscale", smallImg);
+			//imshow("Current Frame Original", faceDetectionData.currentFrame[0]);
+			//imshow("Current Frame Grayscale", smallImg);
 	    	augmentedFrame = faceDetectionData.currentFrame[0].clone();
 		    for( vector<Rect>::const_iterator r = faces.begin(); r != faces.end(); r++ )
 		    {
@@ -788,6 +842,7 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 
 		    }
 		    imshow("Current Frame Augmented", augmentedFrame);
+			waitKey(0);
 
 		}
 
@@ -873,8 +928,38 @@ int main(int argc, const char * argv[])
 	fd_timingVector.resize(16);
 #endif
 
-	return faceDetection_main(argc, argv);
+	/*
+	system_clock::time_point t_total_1 = system_clock::now();
 
+	int ret = faceDetection_main(argc, argv);
+
+	system_clock::time_point t_total_2 = system_clock::now();
+	double t_total = duration_cast<duration<double>>(t_total_2 - t_total_1).count();
+	*/
+	PROFILE_FUNC(t_total, int ret = faceDetection_main(argc, argv));
+
+
+#ifdef PROFILING
+	// Report timing
+	std::cout << "\nTiming results\n";
+	std::cout << "==============\n";
+	std::cout << "faceDetectionSetupInput:     " << t_setupInput << " s  \t" << t_setupInput/t_total * 100 << " %\n";
+	std::cout << "faceDetectionGetNextFrames:  " << t_getNextFrames << " s  \t" << t_getNextFrames/t_total * 100 << " %\n";
+	std::cout << "detectMultiScale:            " << t_detectMultiScale << " s  \t" << t_detectMultiScale/t_total * 100 << " %\n";
+	std::cout << std::endl;
+	std::cout << "Within detectMultiScale:\n";
+	std::cout << "\tdetectSingleScale:           " << t_detectSingleScale << " s  \t" << t_detectSingleScale/t_total * 100 << " %  \t" << t_detectSingleScale/t_detectMultiScale * 100 << "%\n";
+	std::cout << "\tgroupRectangles:             " << t_groupRectangles << " s  \t" << t_groupRectangles/t_total * 100 << " %  \t" << t_groupRectangles/t_detectMultiScale * 100 << "%\n";
+	std::cout << "\tmultiLoopCalc:               " << t_multiLoopCalc << " s  \t" << t_multiLoopCalc/t_total * 100 << " %  \t" << t_multiLoopCalc/t_detectMultiScale * 100 << "%\n";
+	std::cout << "\tdetectMultiScaleInternal:    " << t_detectMultiScaleInternal << " s  \t" << t_detectMultiScaleInternal/t_total * 100 << " %\n";
+	std::cout << std::endl;
+	std::cout << "Within detectSingleScale:\n";
+	std::cout << "\tparallel_for:                " << t_parallelFor << " s  \t" << t_parallelFor/t_total * 100 << " %  \t" << t_parallelFor/t_detectSingleScale * 100 << "%\n";
+	std::cout << std::endl;
+	std::cout << "Total time:  " << t_total << " s\n\n";
+#endif
+
+	return ret;
 }
 #endif
  

@@ -31,6 +31,7 @@
 export OpenCV_DIR="/home/jlclemon/Documents/OpenCV/OpenCV2.4.2NativeInstall/"
 #"/home/jlclemon/Documents/OpenCV/OpenCV2.2NativeInstall/"
 export OpenCV_STATIC_DIR="/home/jlclemon/Documents/OpenCV/OpenCV2.4.2NativeStaticInstall/"
+export LD_LIBRARY_PATH="/home/michelle/ece1747/opencv/lib":$LD_LIBRARY_PATH
 
 BASEDIR="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export MEVBENCH_BASEDIR="$BASEDIR"
