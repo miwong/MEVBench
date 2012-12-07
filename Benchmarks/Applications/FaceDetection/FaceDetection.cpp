@@ -105,7 +105,7 @@ vector<struct timespec> fd_timeStructVector;
 		}
 #endif
 
-//#define PIPELINE
+#define PIPELINE_DEPTH 3
 
 using namespace std::chrono;
 extern double t_detectSingleScale, t_groupRectangles, t_multiLoopCalc, t_detectMultiScaleInternal;
@@ -647,7 +647,7 @@ void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetec
 
 }
 
-#ifdef PIPELINE
+// Pipeline/thread structs and entry functions
 struct GetNextFramesArgs {
 	FaceDetectionData *faceDetectionData;
 	FaceDetectionConfig *faceDetectionConfig;
@@ -660,41 +660,88 @@ void *faceDetectionGetNextFramesThread(void *args)
 	FaceDetectionData *faceDetectionData = thread_args->faceDetectionData;
 	FaceDetectionConfig *faceDetectionConfig = thread_args->faceDetectionConfig;
 
+	int frameNum = 0;
+
 	while (1) {
 
 		switch(faceDetectionConfig->inputMethod)
 		{
 			case FACE_DETECT_VIDEO_FILE:
 			{
-				videoCapture->read(faceDetectionData->currentFrame[1]);
-				faceDetectionData->currentInputImageId++;
+				videoCapture->read(faceDetectionData->currentFrame[frameNum]);
 				break;
 			}
 			case FACE_DETECT_IMAGE_FILE_LIST:
 			{
-				faceDetectionData->currentFrame[1] = imread(faceDetectionData->imageList[faceDetectionData->currentInputImageId]);
+				faceDetectionData->currentFrame[frameNum] = imread(faceDetectionData->imageList[faceDetectionData->currentInputImageId]);
 				faceDetectionData->currentInputImageId++;
 				break;
 			}	
 		}
 
-		pthread_barrier_wait(thread_args->barrier);
-
-		faceDetectionData->currentFrame[0] = faceDetectionData->currentFrame[1];
-
-		if(faceDetectionData->currentFrame[0].empty())
+		if(faceDetectionData->currentFrame[frameNum].empty())
 		{
-			faceDetectionData->outOfImages = true;
+			//faceDetectionData->outOfImages = true;
+			pthread_barrier_wait(thread_args->barrier);
 			pthread_barrier_wait(thread_args->barrier);
 			break;
 		}
 		
+		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
 		pthread_barrier_wait(thread_args->barrier);
 	}
 
 	return NULL;
 }
-#endif
+
+struct DetectMultiArgs {
+	FaceDetectionData *faceDetectionData;
+	FaceDetectionConfig *faceDetectionConfig;
+	pthread_barrier_t *barrier;
+};
+
+void *ccDetectMultiThread(void *args)
+{
+	struct DetectMultiArgs *thread_args = (struct DetectMultiArgs *)args;
+	FaceDetectionData *faceDetectionData = thread_args->faceDetectionData;
+	FaceDetectionConfig *faceDetectionConfig = thread_args->faceDetectionConfig;
+	pthread_barrier_t *barrier = thread_args->barrier;
+
+	Mat gray, smallImg( cvRound (faceDetectionData->frameSize.height/faceDetectionConfig->faceScale), cvRound(faceDetectionData->frameSize.width/faceDetectionConfig->faceScale), CV_8UC1 );
+	int frameNum = 0;
+
+	// Wait until first image is ready
+	pthread_barrier_wait(barrier);
+
+	while (1) {
+		if (faceDetectionData->currentFrame[frameNum].empty())
+		{
+			//faceDetectionData->outOfImages = true;
+			pthread_barrier_wait(thread_args->barrier);
+			break;
+		}
+
+		cvtColor( faceDetectionData->currentFrame[frameNum], gray, CV_BGR2GRAY );
+		resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
+		equalizeHist( smallImg, smallImg );
+
+		PROFILE_FUNC(t_detectMultiScale, faceDetectionData->faceCascade.detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
+			1.1, 2, 0
+			//|CV_HAAR_FIND_BIGGEST_OBJECT
+			//|CV_HAAR_DO_ROUGH_SEARCH
+			|CV_HAAR_SCALE_IMAGE
+			,
+			Size(30, 30) )
+		);
+
+		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
+
+		pthread_barrier_wait(barrier);
+	}
+	
+	return NULL;
+}
+
  
  int faceDetection_main(int argc, const char * argv[])
 {
@@ -782,27 +829,9 @@ void *faceDetectionGetNextFramesThread(void *args)
 		}
 	}
 	cout << "Beginning Main Loop" << endl;
-
-
-	key = -1;
-	lastKey = -1;
-
-	bool done = false;
-
-	Mat tmpBuffer;
-
-
-
+	
     vector<Rect> faces;
-//    const static Scalar colors[] =  { CV_RGB(0,0,255),
-//        CV_RGB(0,128,255),
-//        CV_RGB(0,255,255),
-//        CV_RGB(0,255,0),
-//        CV_RGB(255,128,0),
-//        CV_RGB(255,255,0),
-//        CV_RGB(255,0,0),
-//        CV_RGB(255,0,255)} ;
-    Mat gray, smallImg( cvRound (faceDetectionData.frameSize.height/faceDetectionConfig.faceScale), cvRound(faceDetectionData.frameSize.width/faceDetectionConfig.faceScale), CV_8UC1 );
+    //Mat gray, smallImg( cvRound (faceDetectionData.frameSize.height/faceDetectionConfig.faceScale), cvRound(faceDetectionData.frameSize.width/faceDetectionConfig.faceScale), CV_8UC1 );
 
 	Mat augmentedFrame;
 
@@ -834,9 +863,8 @@ void *faceDetectionGetNextFramesThread(void *args)
 	GET_TIME_WRAPPER(fd_timeStructVector[0]);
 #endif
 
-#ifdef PIPELINE
 	pthread_barrier_t pipelineBarrier;
-	pthread_barrier_init(&pipelineBarrier, NULL, 2);
+	pthread_barrier_init(&pipelineBarrier, NULL, 3);
 
 	struct GetNextFramesArgs getNextFramesArgs;
 	getNextFramesArgs.faceDetectionData = &faceDetectionData;
@@ -846,80 +874,36 @@ void *faceDetectionGetNextFramesThread(void *args)
 	pthread_t nextFramesThread;
 	pthread_create(&nextFramesThread, NULL, faceDetectionGetNextFramesThread, (void *)(&getNextFramesArgs));
 
+	struct DetectMultiArgs detectMultiArgs;
+	detectMultiArgs.faceDetectionData = &faceDetectionData;
+	detectMultiArgs.faceDetectionConfig = &faceDetectionConfig;
+	detectMultiArgs.barrier = &pipelineBarrier;
+
+	pthread_t detectMultiThread;
+	pthread_create(&detectMultiThread, NULL, ccDetectMultiThread, (void *)(&detectMultiArgs));
+
+	int frameNum = 0;
+
 	// Wait until first image is ready
 	pthread_barrier_wait(&pipelineBarrier);
-#endif
+	pthread_barrier_wait(&pipelineBarrier);
 
-	while(!done)
+	while(1)
 	{
 		//system_clock::time_point t_frame_1 = system_clock::now();
-		/*
-		system_clock::time_point t_getNextFrames_1 = system_clock::now();
 
-		faceDetectionGetNextFrames(faceDetectionConfig, faceDetectionData);
-		
-		system_clock::time_point t_getNextFrames_2 = system_clock::now();
-		t_getNextFrames += duration_cast<duration<double>>(t_getNextFrames_2 - t_getNextFrames_1).count();
-		//duration<double> t_getNextFrames_span = duration_cast<duration<double>>(t_getNextFrames_2 - t_getNextFrames_1);
-		//std::cout << "faceDetectionGetNextFrames: " << t_getNextFrames_span.count() << " seconds" << std::endl;
-		*/
-
-#ifdef PIPELINE
-		// Wait until image Mat is in currentFrames[0]
-		PROFILE_FUNC(t_getNextFrames, pthread_barrier_wait(&pipelineBarrier));
-#else
-		PROFILE_FUNC(t_getNextFrames, faceDetectionGetNextFrames(faceDetectionConfig, faceDetectionData));
-#endif
-		
-
-		if(faceDetectionData.outOfImages == true)
-		{
-
+		if (faceDetectionData.currentFrame[frameNum].empty()) {
 			break;
 		}
-
-
-
-	    cvtColor( faceDetectionData.currentFrame[0], gray, CV_BGR2GRAY );
-	    resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
-	    equalizeHist( smallImg, smallImg );
-
-		/*
-		system_clock::time_point t_detectMultiScale_1 = system_clock::now();
-
-	    faceDetectionData.faceCascade.detectMultiScale( smallImg, faces,
-	        1.1, 2, 0
-	        //|CV_HAAR_FIND_BIGGEST_OBJECT
-	        //|CV_HAAR_DO_ROUGH_SEARCH
-	        |CV_HAAR_SCALE_IMAGE
-	        ,
-	        Size(30, 30) );
-
-		system_clock::time_point t_detectMultiScale_2 = system_clock::now();
-		t_detectMultiScale += duration_cast<duration<double>>(t_detectMultiScale_2 - t_detectMultiScale_1).count();
-		//duration<double> time_span = duration_cast<duration<double>>(t_detectMultiScale_2 - t_detectMultiScale_1);
-		//std::cout << "detectMultiScale: " << time_span.count() << " seconds" << std::endl;
-		*/
-		PROFILE_FUNC(t_detectMultiScale, faceDetectionData.faceCascade.detectMultiScale( smallImg, faces,
-	        1.1, 2, 0
-	        //|CV_HAAR_FIND_BIGGEST_OBJECT
-	        //|CV_HAAR_DO_ROUGH_SEARCH
-	        |CV_HAAR_SCALE_IMAGE
-	        ,
-	        Size(30, 30) )
-		);
-
-		//system_clock::time_point t_frame_2 = system_clock::now();
-		//duration<double> t_frame_span = duration_cast<duration<double>>(t_frame_2 - t_frame_1);
-		//std::cout << "frame time: " << t_frame_span.count() << " seconds" << std::endl;
 
 		if(faceDetectionConfig.showWindows)
 		{
 
 			//imshow("Current Frame Original", faceDetectionData.currentFrame[0]);
 			//imshow("Current Frame Grayscale", smallImg);
-	    	augmentedFrame = faceDetectionData.currentFrame[0].clone();
-		    for( vector<Rect>::const_iterator r = faces.begin(); r != faces.end(); r++ )
+	    	augmentedFrame = faceDetectionData.currentFrame[frameNum].clone();
+	    	//augmentedFrame = faceDetectionData.currentFrame[frameNum].clone();
+		    for( vector<Rect>::const_iterator r = faceDetectionData.faces[frameNum].begin(); r !=  faceDetectionData.faces[frameNum].end(); r++ )
 		    {
 
 		        vector<Rect> nestedObjects;
@@ -937,42 +921,27 @@ void *faceDetectionGetNextFramesThread(void *args)
 				imshow("Current Frame Augmented", augmentedFrame);
 				waitKey(0);
 			} else {
-				//PROFILE_FUNC(t_videoWriter, videoWriter->write(augmentedFrame));
-				PROFILE_FUNC(t_videoWriter, imshow("Current Frame Augmented", augmentedFrame));
-				waitKey(1);
+				PROFILE_FUNC(t_videoWriter, videoWriter->write(augmentedFrame));
+				//PROFILE_FUNC(t_videoWriter, imshow("Current Frame Augmented", augmentedFrame));
+				//waitKey(1);
 			}
 		}
 
-		//std::cout << "Face Detection completed. "  << faces.size()<< " Faces found in current iteration" <<endl;
+		//std::cout << "Face Detection completed. "  << faceDetectionData.faces[frameNum].size()<< " Faces found in current iteration" <<endl;
 
-		lastKey = key;
-		if(!faceDetectionConfig.noWaitKey)
-		{
-			key = waitKey(30) & 0xff;
-		}
-		else
-		{
-			key = -1;
+		faceDetectionData.faces[frameNum].clear();
 
-		}
-
-
-		if(key == 'q' || key =='d' || key == 27)
-		{
-
-			done = true;
-		}
-
-#ifdef PIPELINE
+		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
 		pthread_barrier_wait(&pipelineBarrier);
-#endif
 
+		//system_clock::time_point t_frame_2 = system_clock::now();
+		//duration<double> t_frame_span = duration_cast<duration<double>>(t_frame_2 - t_frame_1);
+		//std::cout << "frame time: " << t_frame_span.count() << " seconds" << std::endl;
 	}
 
-#ifdef PIPELINE
 	pthread_join(nextFramesThread, NULL);
+	pthread_join(detectMultiThread, NULL);
 	pthread_barrier_destroy(&pipelineBarrier);
-#endif
 
 	if (videoCapture) {
 		videoCapture->release();
@@ -1012,7 +981,7 @@ void *faceDetectionGetNextFramesThread(void *args)
 #endif
 
 
-	cout << "Face Detection completed. "  << faces.size()<< " Faces found in last iteration" <<endl;
+	cout << "Face Detection completed. "  << faceDetectionData.faces[frameNum].size()<< " Faces found in last iteration" <<endl;
 	if(faceDetectionConfig.showWindows)
 	{
 		cout << "Destroying display windows" << endl;
