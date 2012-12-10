@@ -111,12 +111,12 @@ struct FaceDetectionData
 	CascadeClassifier faceCascade;
 
 	Mat frameBuffer[2];
-	Mat currentFrame[3];
+	Mat currentFrame[4];
 	Mat currentAgumentedFrame[2];
 	Size frameSize;
 	bool outOfImages;
 
-	vector<Rect>faces[3];
+	vector<Rect>faces[4];
 };
 
 
