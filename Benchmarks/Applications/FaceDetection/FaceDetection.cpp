@@ -753,13 +753,13 @@ void *ccDetectMultiThread1(void *args)
 		);
 		*/
 		
-		faceDetectionData->faceCascade[frameNum & 0x1].detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
+		faceDetectionData->faceCascade[0].detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
 			1.1, 2, 0
 			//|CV_HAAR_FIND_BIGGEST_OBJECT
 			//|CV_HAAR_DO_ROUGH_SEARCH
 			|CV_HAAR_SCALE_IMAGE
 			,
-		    Size(40, 40));
+		    Size(60, 60));
 
 
 		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
@@ -815,14 +815,14 @@ void *ccDetectMultiThread2(void *args)
 
 		vector<Rect> faces;
 
-		faceDetectionData->faceCascade[frameNum & 0x1].detectMultiScale( smallImg, faces,
+		faceDetectionData->faceCascade[1].detectMultiScale( smallImg, faces,
 			1.1, 2, 0
 			//|CV_HAAR_FIND_BIGGEST_OBJECT
 			//|CV_HAAR_DO_ROUGH_SEARCH
 			|CV_HAAR_SCALE_IMAGE
 			,
 			Size(30, 30),
-			Size(40, 40));
+			Size(60, 60));
 
 		if (!faces.empty()) {
 			faceDetectionData->faces[frameNum].insert(faceDetectionData->faces[frameNum].end(), faces.begin(), faces.end());
