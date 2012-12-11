@@ -656,6 +656,14 @@ struct PipelineThreadArgs {
 	pthread_barrier_t *barrier;
 };
 
+struct HelperMultiThreadArgs {
+	CascadeClassifier *faceCascade;
+	vector<Rect> *faces;
+	Size minSize;
+	Size maxSize;
+	Mat *smallImg;
+};
+
 void *faceDetectionGetNextFramesThread(void *args)
 {
 	PipelineThreadArgs *thread_args = (PipelineThreadArgs *)args;
@@ -710,6 +718,26 @@ void *faceDetectionGetNextFramesThread(void *args)
 	return NULL;
 }
 
+void *helperDetectMultiThread(void *args) {
+	struct HelperMultiThreadArgs *thread_args = (HelperMultiThreadArgs *)args;
+	CascadeClassifier *faceCascade = thread_args->faceCascade;
+	vector<Rect>& faces = *(thread_args->faces);
+	Mat& smallImg = *(thread_args->smallImg);
+	Size& minSize = thread_args->minSize;
+	Size& maxSize = thread_args->maxSize;
+
+	faceCascade->detectMultiScale( smallImg, faces,
+		1.1, 2, 0
+		//|CV_HAAR_FIND_BIGGEST_OBJECT
+		//|CV_HAAR_DO_ROUGH_SEARCH
+		|CV_HAAR_SCALE_IMAGE
+		,
+		minSize,
+		maxSize);
+
+	return NULL;
+}
+
 void *ccDetectMultiThread(void *args)
 {
 	PipelineThreadArgs *thread_args = (PipelineThreadArgs *)args;
@@ -738,23 +766,48 @@ void *ccDetectMultiThread(void *args)
 		resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
 		equalizeHist( smallImg, smallImg );
 
+		const int numThreads = 1;
+
+		vector<Rect> faces[2];
+		struct HelperMultiThreadArgs helperMultiThreadArgs[numThreads];
+		CascadeClassifier cascades[numThreads];
+
+		cascades[0].load(faceDetectionConfig->cascadeFaceDetectorFilename);
+
+		helperMultiThreadArgs[0].faceCascade = &cascades[0];
+		helperMultiThreadArgs[0].faces = &faces[0];
+		helperMultiThreadArgs[0].smallImg = &smallImg;
+		helperMultiThreadArgs[0].minSize = Size(60, 60);
+		helperMultiThreadArgs[0].maxSize = Size();
+
 		/*
-		PROFILE_FUNC(t_detectMultiScale, faceDetectionData->faceCascade.detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
-			1.1, 2, 0
-			//|CV_HAAR_FIND_BIGGEST_OBJECT
-			//|CV_HAAR_DO_ROUGH_SEARCH
-			|CV_HAAR_SCALE_IMAGE
-			,
-			Size(30, 30) )
-		);
+		helperMultiThreadArgs[1].faceDetectionData = faceDetectionData;
+		helperMultiThreadArgs[1].faces = &faces[1];
+		helperMultiThreadArgs[1].smallImg = &smallImg;
+		helperMultiThreadArgs[1].minSize = Size(60, 60);
+		helperMultiThreadArgs[1].maxSize = Size();
 		*/
+
+		pthread_t helperThread[numThreads];
+		pthread_create(&helperThread[0], NULL, helperDetectMultiThread, &helperMultiThreadArgs[0]);
+		//pthread_create(&helperThread[0], NULL, helperDetectMultiThread, &helperMultiThreadArgs[0]);
+
+		
 		faceDetectionData->faceCascade.detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
 			1.1, 2, 0
 			//|CV_HAAR_FIND_BIGGEST_OBJECT
 			//|CV_HAAR_DO_ROUGH_SEARCH
 			|CV_HAAR_SCALE_IMAGE
 			,
-			Size(30, 30) );
+			Size(30, 30),
+			Size(60, 60) );
+		
+		pthread_join(helperThread[0], NULL);
+		//pthread_join(helperThread[1], NULL);
+		
+		if (!faces[0].empty()) {
+			faceDetectionData->faces[frameNum].insert(faceDetectionData->faces[frameNum].end(), faces[0].begin(), faces[0].end());
+		}
 
 		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
 
