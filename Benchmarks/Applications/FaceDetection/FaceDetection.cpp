@@ -105,13 +105,13 @@ vector<struct timespec> fd_timeStructVector;
 		}
 #endif
 
-#define PIPELINE_DEPTH 4
+#define PIPELINE_DEPTH 5
 
 using namespace std::chrono;
 //extern double t_detectSingleScale, t_groupRectangles, t_multiLoopCalc, t_detectMultiScaleInternal;
 //extern double t_parallelFor;
 //double t_detectMultiScale = 0.0, t_getNextFrames = 0.0, t_setupInput = 0.0, t_videoWriter = 0.0, t_total = 0.0;
-double t_inputFramesStage = 0.0, t_detectMultiStage = 0.0, t_groupRectsStage = 0.0, t_videoWriteStage = 0.0;
+double t_inputFramesStage = 0.0, t_detectMultiStage1 = 0.0, t_detectMultiStage2 = 0.0, t_groupRectsStage = 0.0, t_videoWriteStage = 0.0;
 double t_total = 0.0;
 
 #ifdef PROFILING
@@ -645,7 +645,9 @@ void faceDetectionGetNextFrames(FaceDetectionConfig &faceDetectionConfig, FaceDe
 
 void setupFaceDetectionData(FaceDetectionConfig & faceDetectionConfig, FaceDetectionData & faceDetectionData)
 {
-	faceDetectionData.faceCascade.load(faceDetectionConfig.cascadeFaceDetectorFilename);
+	//faceDetectionData.faceCascade.load(faceDetectionConfig.cascadeFaceDetectorFilename);
+	faceDetectionData.faceCascade[0].load(faceDetectionConfig.cascadeFaceDetectorFilename);
+	faceDetectionData.faceCascade[1].load(faceDetectionConfig.cascadeFaceDetectorFilename);
 
 }
 
@@ -696,6 +698,7 @@ void *faceDetectionGetNextFramesThread(void *args)
 			pthread_barrier_wait(barrier);
 			pthread_barrier_wait(barrier);
 			pthread_barrier_wait(barrier);
+			pthread_barrier_wait(barrier);
 			break;
 		}
 		
@@ -710,7 +713,7 @@ void *faceDetectionGetNextFramesThread(void *args)
 	return NULL;
 }
 
-void *ccDetectMultiThread(void *args)
+void *ccDetectMultiThread1(void *args)
 {
 	PipelineThreadArgs *thread_args = (PipelineThreadArgs *)args;
 	FaceDetectionData *faceDetectionData = thread_args->faceDetectionData;
@@ -729,10 +732,11 @@ void *ccDetectMultiThread(void *args)
 			//faceDetectionData->outOfImages = true;
 			pthread_barrier_wait(barrier);
 			pthread_barrier_wait(barrier);
+			pthread_barrier_wait(barrier);
 			break;
 		}
 
-		system_clock::time_point t_detectMultiStage_1 = system_clock::now();
+		system_clock::time_point t_detectMultiStage1_1 = system_clock::now();
 
 		cvtColor( faceDetectionData->currentFrame[frameNum], gray, CV_BGR2GRAY );
 		resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
@@ -748,18 +752,86 @@ void *ccDetectMultiThread(void *args)
 			Size(30, 30) )
 		);
 		*/
-		faceDetectionData->faceCascade.detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
+		
+		faceDetectionData->faceCascade[frameNum & 0x1].detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
 			1.1, 2, 0
 			//|CV_HAAR_FIND_BIGGEST_OBJECT
 			//|CV_HAAR_DO_ROUGH_SEARCH
 			|CV_HAAR_SCALE_IMAGE
 			,
-			Size(30, 30) );
+		    Size(40, 40));
+
 
 		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
 
-		system_clock::time_point t_detectMultiStage_2 = system_clock::now();
-		t_detectMultiStage += duration_cast<duration<double>>(t_detectMultiStage_2 - t_detectMultiStage_1).count();
+		system_clock::time_point t_detectMultiStage1_2 = system_clock::now();
+		t_detectMultiStage1 += duration_cast<duration<double>>(t_detectMultiStage1_2 - t_detectMultiStage1_1).count();
+
+		pthread_barrier_wait(barrier);
+	}
+	
+	return NULL;
+}
+
+void *ccDetectMultiThread2(void *args)
+{
+	PipelineThreadArgs *thread_args = (PipelineThreadArgs *)args;
+	FaceDetectionData *faceDetectionData = thread_args->faceDetectionData;
+	FaceDetectionConfig *faceDetectionConfig = thread_args->faceDetectionConfig;
+	pthread_barrier_t *barrier = thread_args->barrier;
+
+	Mat gray, smallImg( cvRound (faceDetectionData->frameSize.height/faceDetectionConfig->faceScale), cvRound(faceDetectionData->frameSize.width/faceDetectionConfig->faceScale), CV_8UC1 );
+	int frameNum = 0;
+
+	// Wait until first image is ready
+	pthread_barrier_wait(barrier);
+	pthread_barrier_wait(barrier);
+
+	while (1) {
+		if (faceDetectionData->currentFrame[frameNum].empty())
+		{
+			//faceDetectionData->outOfImages = true;
+			pthread_barrier_wait(barrier);
+			pthread_barrier_wait(barrier);
+			break;
+		}
+
+		system_clock::time_point t_detectMultiStage2_1 = system_clock::now();
+
+		cvtColor( faceDetectionData->currentFrame[frameNum], gray, CV_BGR2GRAY );
+		resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );
+		equalizeHist( smallImg, smallImg );
+
+		/*
+		PROFILE_FUNC(t_detectMultiScale, faceDetectionData->faceCascade.detectMultiScale( smallImg, faceDetectionData->faces[frameNum],
+			1.1, 2, 0
+			//|CV_HAAR_FIND_BIGGEST_OBJECT
+			//|CV_HAAR_DO_ROUGH_SEARCH
+			|CV_HAAR_SCALE_IMAGE
+			,
+			Size(30, 30) )
+		);
+		*/
+
+		vector<Rect> faces;
+
+		faceDetectionData->faceCascade[frameNum & 0x1].detectMultiScale( smallImg, faces,
+			1.1, 2, 0
+			//|CV_HAAR_FIND_BIGGEST_OBJECT
+			//|CV_HAAR_DO_ROUGH_SEARCH
+			|CV_HAAR_SCALE_IMAGE
+			,
+			Size(30, 30),
+			Size(40, 40));
+
+		if (!faces.empty()) {
+			faceDetectionData->faces[frameNum].insert(faceDetectionData->faces[frameNum].end(), faces.begin(), faces.end());
+		}
+
+		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
+
+		system_clock::time_point t_detectMultiStage2_2 = system_clock::now();
+		t_detectMultiStage2 += duration_cast<duration<double>>(t_detectMultiStage2_2 - t_detectMultiStage2_1).count();
 
 		pthread_barrier_wait(barrier);
 	}
@@ -776,6 +848,7 @@ void *ccGroupRectanglesThread(void *args) {
 	int frameNum = 0;
 	pthread_barrier_wait(barrier);
 	pthread_barrier_wait(barrier);
+	pthread_barrier_wait(barrier);
 
 	while (1) {
 		if (faceDetectionData->currentFrame[frameNum].empty())
@@ -787,7 +860,8 @@ void *ccGroupRectanglesThread(void *args) {
 
 		system_clock::time_point t_groupRectsStage_1 = system_clock::now();
 
-		faceDetectionData->faceCascade.groupRectanglesPipeline(faceDetectionData->faces[frameNum], 2);
+		//faceDetectionData->faceCascade[1].groupRectanglesPipeline(faceDetectionData->faces[frameNum], 2);
+		CascadeClassifier::groupRectanglesPipeline(faceDetectionData->faces[frameNum], 2);
 
 		frameNum = (frameNum == PIPELINE_DEPTH - 1) ? 0 : frameNum + 1;
 
@@ -923,7 +997,7 @@ void *ccGroupRectanglesThread(void *args) {
 #endif
 
 	pthread_barrier_t pipelineBarrier;
-	pthread_barrier_init(&pipelineBarrier, NULL, 4);
+	pthread_barrier_init(&pipelineBarrier, NULL, PIPELINE_DEPTH);
 
 	struct PipelineThreadArgs pipelineThreadArgs;
 	pipelineThreadArgs.faceDetectionData = &faceDetectionData;
@@ -933,8 +1007,11 @@ void *ccGroupRectanglesThread(void *args) {
 	pthread_t nextFramesThread;
 	pthread_create(&nextFramesThread, NULL, faceDetectionGetNextFramesThread, (void *)(&pipelineThreadArgs));
 
-	pthread_t detectMultiThread;
-	pthread_create(&detectMultiThread, NULL, ccDetectMultiThread, (void *)(&pipelineThreadArgs));
+	pthread_t detectMultiThread1;
+	pthread_create(&detectMultiThread1, NULL, ccDetectMultiThread1, (void *)(&pipelineThreadArgs));
+
+	pthread_t detectMultiThread2;
+	pthread_create(&detectMultiThread2, NULL, ccDetectMultiThread2, (void *)(&pipelineThreadArgs));
 
 	pthread_t groupRectanglesThread;
 	pthread_create(&groupRectanglesThread, NULL, ccGroupRectanglesThread, (void *)(&pipelineThreadArgs));
@@ -942,6 +1019,7 @@ void *ccGroupRectanglesThread(void *args) {
 	int frameNum = 0;
 
 	// Wait until first image is ready
+	pthread_barrier_wait(&pipelineBarrier);
 	pthread_barrier_wait(&pipelineBarrier);
 	pthread_barrier_wait(&pipelineBarrier);
 	pthread_barrier_wait(&pipelineBarrier);
@@ -1006,7 +1084,8 @@ void *ccGroupRectanglesThread(void *args) {
 	}
 
 	pthread_join(nextFramesThread, NULL);
-	pthread_join(detectMultiThread, NULL);
+	pthread_join(detectMultiThread1, NULL);
+	pthread_join(detectMultiThread2, NULL);
 	pthread_join(groupRectanglesThread, NULL);
 	pthread_barrier_destroy(&pipelineBarrier);
 
@@ -1093,7 +1172,8 @@ int main(int argc, const char * argv[])
 	std::cout << "\nTiming results\n";
 	std::cout << "==============\n";
 	std::cout << "inputFramesStage:     " << t_inputFramesStage << " s  \t" << t_inputFramesStage/t_total * 100 << " %\n";
-	std::cout << "detectMultiStage:     " << t_detectMultiStage << " s  \t" << t_detectMultiStage/t_total * 100 << " %\n";
+	std::cout << "detectMultiStage1:    " << t_detectMultiStage1 << " s  \t" << t_detectMultiStage1/t_total * 100 << " %\n";
+	std::cout << "detectMultiStage2:    " << t_detectMultiStage2 << " s  \t" << t_detectMultiStage2/t_total * 100 << " %\n";
 	std::cout << "groupRectsStage:      " << t_groupRectsStage << " s  \t" << t_groupRectsStage/t_total * 100 << " %\n";
 	std::cout << "videoWriteStage:      " << t_videoWriteStage << " s  \t" << t_videoWriteStage/t_total * 100 << " %\n";
 	/*
