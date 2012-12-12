@@ -108,15 +108,15 @@ struct FaceDetectionData
 	int currentInputImageId;
 	vector<string> inputImageList;
 	list<Mat> imageListBuffer[2];
-	CascadeClassifier faceCascade[2];
+	CascadeClassifier faceCascade[3];
 
 	Mat frameBuffer[2];
-	Mat currentFrame[5];
+	Mat currentFrame[6];
 	Mat currentAgumentedFrame[2];
 	Size frameSize;
 	bool outOfImages;
 
-	vector<Rect>faces[5];
+	vector<Rect>faces[6];
 };
 
 
