@@ -945,6 +945,7 @@ void *ccGroupRectanglesThread(void *args) {
 #ifdef FRAMERATE
 	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
 	system_clock::time_point t_framerate_1, t_framerate_2;
+	double t_framerate = 0.0;
 #endif
 
 	// Wait until first image is ready
@@ -955,9 +956,7 @@ void *ccGroupRectanglesThread(void *args) {
 	while(1)
 	{
 #ifdef FRAMERATE
-		t_framerate_1 = t_framerate_2;
-		t_framerate_2 = system_clock::now();
-		fprintf(framerateFile, "%f\n", duration_cast<duration<double>>(t_framerate_2 - t_framerate_1).count());
+		t_framerate_1 = system_clock::now();
 #endif
 		//system_clock::time_point t_frame_1 = system_clock::now();
 
@@ -1010,6 +1009,18 @@ void *ccGroupRectanglesThread(void *args) {
 		t_videoWriteStage += duration_cast<duration<double>>(t_videoWriteStage_2 - t_videoWriteStage_1).count();
 		
 		pthread_barrier_wait(&pipelineBarrier);
+
+#ifdef FRAMERATE
+		t_framerate_2 = system_clock::now();
+
+		if (t_framerate) {
+			t_framerate = (0.05 * (duration_cast<duration<double>>(t_framerate_2 - t_framerate_1).count())) + (0.95 * t_framerate);
+		} else {
+			t_framerate = duration_cast<duration<double>>(t_framerate_2 - t_framerate_1).count();
+		}
+
+		fprintf(framerateFile, "%f\n", t_framerate);
+#endif
 
 		//system_clock::time_point t_frame_2 = system_clock::now();
 		//duration<double> t_frame_span = duration_cast<duration<double>>(t_frame_2 - t_frame_1);
