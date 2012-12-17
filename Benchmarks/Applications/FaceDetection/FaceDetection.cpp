@@ -105,7 +105,7 @@ vector<struct timespec> fd_timeStructVector;
 		}
 #endif
 
-#define PIPELINE
+//#define PIPELINE
 #define FRAMERATE
 
 using namespace std::chrono;
@@ -835,6 +835,12 @@ void *faceDetectionGetNextFramesThread(void *args)
 	GET_TIME_WRAPPER(fd_timeStructVector[0]);
 #endif
 
+#ifdef FRAMERATE
+	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
+	system_clock::time_point t_framerate_1, t_framerate_2;
+	double t_framerate = 0.0;
+#endif
+
 #ifdef PIPELINE
 	pthread_barrier_t pipelineBarrier;
 	pthread_barrier_init(&pipelineBarrier, NULL, 2);
@@ -846,12 +852,6 @@ void *faceDetectionGetNextFramesThread(void *args)
 
 	pthread_t nextFramesThread;
 	pthread_create(&nextFramesThread, NULL, faceDetectionGetNextFramesThread, (void *)(&getNextFramesArgs));
-
-#ifdef FRAMERATE
-	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
-	system_clock::time_point t_framerate_1, t_framerate_2;
-	double t_framerate = 0.0;
-#endif
 
 	// Wait until first image is ready
 	pthread_barrier_wait(&pipelineBarrier);
