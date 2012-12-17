@@ -835,11 +835,6 @@ void *faceDetectionGetNextFramesThread(void *args)
 	GET_TIME_WRAPPER(fd_timeStructVector[0]);
 #endif
 
-#ifdef FRAMERATE
-	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
-	system_clock::time_point t_framerate_1, t_framerate_2;
-#endif
-
 #ifdef PIPELINE
 	pthread_barrier_t pipelineBarrier;
 	pthread_barrier_init(&pipelineBarrier, NULL, 2);
@@ -852,6 +847,11 @@ void *faceDetectionGetNextFramesThread(void *args)
 	pthread_t nextFramesThread;
 	pthread_create(&nextFramesThread, NULL, faceDetectionGetNextFramesThread, (void *)(&getNextFramesArgs));
 
+#ifdef FRAMERATE
+	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
+	system_clock::time_point t_framerate_1, t_framerate_2;
+#endif
+
 	// Wait until first image is ready
 	pthread_barrier_wait(&pipelineBarrier);
 #endif
@@ -861,7 +861,6 @@ void *faceDetectionGetNextFramesThread(void *args)
 #ifdef FRAMERATE
 		t_framerate_1 = system_clock::now();
 #endif
-
 		//system_clock::time_point t_frame_1 = system_clock::now();
 		/*
 		system_clock::time_point t_getNextFrames_1 = system_clock::now();
@@ -986,6 +985,10 @@ void *faceDetectionGetNextFramesThread(void *args)
 #ifdef PIPELINE
 	pthread_join(nextFramesThread, NULL);
 	pthread_barrier_destroy(&pipelineBarrier);
+#endif
+
+#ifdef FRAMERATE
+	fclose(framerateFile);
 #endif
 
 #ifdef FRAMERATE
