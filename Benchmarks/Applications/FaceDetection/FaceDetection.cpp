@@ -105,7 +105,8 @@ vector<struct timespec> fd_timeStructVector;
 		}
 #endif
 
-//#define PIPELINE
+#define PIPELINE
+#define FRAMERATE
 
 using namespace std::chrono;
 extern double t_detectSingleScale, t_groupRectangles, t_multiLoopCalc, t_detectMultiScaleInternal;
@@ -834,6 +835,11 @@ void *faceDetectionGetNextFramesThread(void *args)
 	GET_TIME_WRAPPER(fd_timeStructVector[0]);
 #endif
 
+#ifdef FRAMERATE
+	FILE *framerateFile = fopen("profiling/framerate.csv", "w");
+	system_clock::time_point t_framerate_1, t_framerate_2;
+#endif
+
 #ifdef PIPELINE
 	pthread_barrier_t pipelineBarrier;
 	pthread_barrier_init(&pipelineBarrier, NULL, 2);
@@ -852,6 +858,10 @@ void *faceDetectionGetNextFramesThread(void *args)
 
 	while(!done)
 	{
+#ifdef FRAMERATE
+		t_framerate_1 = system_clock::now();
+#endif
+
 		//system_clock::time_point t_frame_1 = system_clock::now();
 		/*
 		system_clock::time_point t_getNextFrames_1 = system_clock::now();
@@ -937,9 +947,9 @@ void *faceDetectionGetNextFramesThread(void *args)
 				imshow("Current Frame Augmented", augmentedFrame);
 				waitKey(0);
 			} else {
-				//PROFILE_FUNC(t_videoWriter, videoWriter->write(augmentedFrame));
-				PROFILE_FUNC(t_videoWriter, imshow("Current Frame Augmented", augmentedFrame));
-				waitKey(1);
+				PROFILE_FUNC(t_videoWriter, videoWriter->write(augmentedFrame));
+				//PROFILE_FUNC(t_videoWriter, imshow("Current Frame Augmented", augmentedFrame));
+				//waitKey(1);
 			}
 		}
 
@@ -967,11 +977,19 @@ void *faceDetectionGetNextFramesThread(void *args)
 		pthread_barrier_wait(&pipelineBarrier);
 #endif
 
+#ifdef FRAMERATE
+		t_framerate_2 = system_clock::now();
+		fprintf(framerateFile, "%f\n", duration_cast<duration<double>>(t_framerate_2 - t_framerate_1).count());
+#endif
 	}
 
 #ifdef PIPELINE
 	pthread_join(nextFramesThread, NULL);
 	pthread_barrier_destroy(&pipelineBarrier);
+#endif
+
+#ifdef FRAMERATE
+	fclose(framerateFile);
 #endif
 
 	if (videoCapture) {
